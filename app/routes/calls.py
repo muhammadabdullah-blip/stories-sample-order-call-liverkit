@@ -20,21 +20,35 @@ router = APIRouter(prefix="/calls", tags=["Calls"])
 logger = logging.getLogger("calls-router")
 
 
+import json
+
 def _resolve_instructions(payload: dict) -> str:
     """
-    Pull 'instructions' from payload and format it with the rest of the keys.
-    Falls back to a generic prompt if not provided.
+    Read the agent_prompt.md from disk and inject payload variables.
+    Falls back to a generic prompt if file doesn't exist.
     """
-    template = payload.get(
-        "instructions",
-        "You are a helpful AI voice assistant making an outbound call. Be polite and professional.",
-    )
     try:
-        # Substitute {variable} placeholders with actual payload values
-        return template.format(**payload)
-    except KeyError as e:
-        logger.warning(f"Missing template variable {e} — using template as-is")
-        return template
+        with open("agent_prompt.md", "r", encoding="utf-8") as f:
+            template = f.read()
+    except Exception as e:
+        logger.error(f"Failed to load agent_prompt.md: {e}")
+        template = payload.get(
+            "instructions",
+            "You are a helpful AI voice assistant making an outbound call. Be polite and professional.",
+        )
+
+    # Use string replace to avoid Python's .format() crashing on standalone curly braces in the prompt text.
+    final_prompt = template
+    for key, value in payload.items():
+        if isinstance(value, (dict, list)):
+            val_str = json.dumps(value, indent=2)
+        else:
+            val_str = str(value)
+        
+        # Replace occurrences of {key}
+        final_prompt = final_prompt.replace("{" + key + "}", val_str)
+
+    return final_prompt
 
 
 # ─── POST /calls — Initiate a call ───────────────────────────────────────────
@@ -61,6 +75,10 @@ async def initiate_call(body: InitiateCallRequest):
     s = get_settings()
     call_id = str(uuid.uuid4())
     instructions = _resolve_instructions(body.payload)
+    
+    # Inject the resolved prompt back into payload so the LiveKit agent receives it
+    body.payload["instructions"] = instructions
+    
     room_name = f"call-{call_id}"
 
     # Persist to Supabase FIRST — the agent fires webhooks immediately after

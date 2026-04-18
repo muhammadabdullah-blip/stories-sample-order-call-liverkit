@@ -247,14 +247,15 @@ class CallActions(llm.FunctionContext):
         self.payload = payload
 
     async def _webhook(self, tool_name: str, args: dict) -> dict:
-        return await call_tool_webhook(
-            {
-                "call_id": self.call_id,
-                "tool_name": tool_name,
-                "args": args,
-                "payload": self.payload,
-            }
-        )
+        webhook_payload = {
+            "call_id": self.call_id,
+            "tool_name": tool_name,
+            "args": args,
+        }
+        if tool_name != "end_call":
+            webhook_payload["payload"] = self.payload
+
+        return await call_tool_webhook(webhook_payload)
 
     async def _hangup(self):
         try:
@@ -348,19 +349,15 @@ def build_voice_pipeline(
     payload: dict,
 ) -> VoicePipelineAgent:
     """Build and return the VoicePipelineAgent (does not start it)."""
-    # Prepend a conciseness instruction to reduce LLM token generation time
-    system_prompt = (
-        "IMPORTANT: Keep your responses SHORT and conversational (1-2 sentences max). "
-        "You are on a phone call — speak naturally and briefly.\n\n" + instructions
-    )
-    initial_ctx = llm.ChatContext().append(role="system", text=system_prompt)
+    # Pass the fully resolved instructions straight into the system prompt context
+    initial_ctx = llm.ChatContext().append(role="system", text=instructions)
 
     agent = VoicePipelineAgent(
         vad=ctx.proc.userdata["vad"],
         stt=deepgram.STT(model="nova-2-phonecall"),  # phone-audio-optimized model
         llm=openai.LLM(model="gpt-4o-mini", temperature=0.6),
         tts=cartesia.TTS(
-            model="sonic-english",
+            model="cartesia/sonic-3",
             voice="ee7ea9f8-c0c1-498c-9279-764d6b56d189",
         ),  # Cartesia Sonic 3 for ultra-low latency
         chat_ctx=initial_ctx,
@@ -429,15 +426,11 @@ async def entrypoint(ctx: JobContext):
         ctx.shutdown()
         return
 
-    # Resolve instructions: format template with payload variables
-    template = payload.get(
+    # Extract the pre-resolved instructions provided by FastAPI from the payload
+    instructions = payload.get(
         "instructions",
         "You are a professional AI voice assistant making an outbound call. Be concise and polite.",
     )
-    try:
-        instructions = template.format(**payload)
-    except KeyError:
-        instructions = template
 
     logger.info(f"[{call_id}] Dialing {to_num}")
     await notify(
@@ -482,6 +475,11 @@ async def entrypoint(ctx: JobContext):
     # ── Build & start voice pipeline ─────────────────────────────────────────
     agent = build_voice_pipeline(ctx, participant, instructions, call_id, payload)
     agent.start(ctx.room, participant)
+
+    # ── Dispatch First Message (Dynamic Greeting) ────────────────────────────
+    first_name = payload.get("first_name", "there")
+    first_message = f'<emotion value="happy"/><speed ratio="1.0"/> Hi, am I talking to {first_name}?'
+    asyncio.create_task(agent.say(first_message, allow_interruptions=True))
 
     # ── Monitor call status ───────────────────────────────────────────────────
     call_start = perf_counter()
