@@ -1,0 +1,9 @@
+{
+  "trunk": {
+    "name": "twilio-outbound",
+    "address": "storiesflooringtest.pstn.twilio.com",
+    "numbers": ["+447463533123"], 
+    "auth_username": "stories",
+    "auth_password": "Flooring123@"
+  }
+}
