@@ -10,6 +10,7 @@ livekit-agents>=0.12.11,<1.0
 livekit-plugins-openai>=0.10.17,<1.0
 livekit-plugins-deepgram>=0.6.17,<1.0
 livekit-plugins-silero>=0.7.4,<1.0
+livekit-plugins-cartesia
 
 # HTTP client (agent → FastAPI webhooks)
 httpx>=0.27.0

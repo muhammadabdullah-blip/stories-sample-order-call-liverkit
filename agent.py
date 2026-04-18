@@ -34,7 +34,7 @@ from livekit.agents import (
     llm,
 )
 from livekit.agents.pipeline import VoicePipelineAgent
-from livekit.plugins import deepgram, openai, silero
+from livekit.plugins import cartesia, deepgram, openai, silero
 
 load_dotenv(dotenv_path=".env.local")
 
@@ -179,9 +179,14 @@ async def _monitor_egress(ctx: JobContext, call_id: str, egress_id: str):
                 api.EgressStatus.EGRESS_COMPLETE,
                 api.EgressStatus.EGRESS_FAILED,
             ):
-                if item.status == api.EgressStatus.EGRESS_COMPLETE and item.file_results:
+                if (
+                    item.status == api.EgressStatus.EGRESS_COMPLETE
+                    and item.file_results
+                ):
                     # Construct the public Supabase Storage URL
-                    filename = item.file_results[0].filename or f"recordings/{call_id}.ogg"
+                    filename = (
+                        item.file_results[0].filename or f"recordings/{call_id}.ogg"
+                    )
                     recording_url = f"{SUPABASE_URL}/storage/v1/object/public/{SUPABASE_STORAGE_BUCKET}/{filename}"
                     duration = int(item.file_results[0].duration / 1_000_000_000)
 
@@ -194,7 +199,9 @@ async def _monitor_egress(ctx: JobContext, call_id: str, egress_id: str):
                             "duration_secs": duration,
                         },
                     )
-                    logger.info(f"[{call_id}] Recording uploaded to Supabase: {recording_url}")
+                    logger.info(
+                        f"[{call_id}] Recording uploaded to Supabase: {recording_url}"
+                    )
                 elif item.status == api.EgressStatus.EGRESS_FAILED:
                     logger.error(f"[{call_id}] Egress failed")
                 break
@@ -352,12 +359,13 @@ def build_voice_pipeline(
         vad=ctx.proc.userdata["vad"],
         stt=deepgram.STT(model="nova-2-phonecall"),  # phone-audio-optimized model
         llm=openai.LLM(model="gpt-4o-mini", temperature=0.6),
-        tts=deepgram.TTS(
-            model="aura-asteria-en"
-        ),  # ~200ms latency vs ~2s for OpenAI TTS
+        tts=cartesia.TTS(
+            model="sonic-english",
+            voice="ee7ea9f8-c0c1-498c-9279-764d6b56d189",
+        ),  # Cartesia Sonic 3 for ultra-low latency
         chat_ctx=initial_ctx,
         allow_interruptions=True,  # user can cut in anytime
-        min_endpointing_delay=0.2,  # respond almost immediately after user stops
+        min_endpointing_delay=0.3,  # respond almost immediately after user stops
         preemptive_synthesis=True,  # start TTS while LLM is still streaming
         fnc_ctx=CallActions(
             lk_api=ctx.api,
