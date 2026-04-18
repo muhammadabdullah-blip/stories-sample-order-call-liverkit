@@ -357,9 +357,9 @@ def build_voice_pipeline(
         stt=deepgram.STT(model="nova-2-phonecall"),  # phone-audio-optimized model
         llm=openai.LLM(model="gpt-4o-mini", temperature=0.6),
         tts=cartesia.TTS(
-            model="cartesia/sonic-3",
+            model="sonic-english",
             voice="ee7ea9f8-c0c1-498c-9279-764d6b56d189",
-        ),  # Cartesia Sonic 3 for ultra-low latency
+        ),  # Cartesia for ultra-low latency
         chat_ctx=initial_ctx,
         allow_interruptions=True,  # user can cut in anytime
         min_endpointing_delay=0.3,  # respond almost immediately after user stops
@@ -479,6 +479,19 @@ async def entrypoint(ctx: JobContext):
     # ── Dispatch First Message (Dynamic Greeting) ────────────────────────────
     first_name = payload.get("first_name", "there")
     first_message = f'<emotion value="happy"/><speed ratio="1.0"/> Hi, am I talking to {first_name}?'
+    
+    # Manually notify webhook for the first message, since agent.say doesn't trigger agent_speech_committed
+    asyncio.create_task(
+        notify(
+            "/webhook/transcript",
+            {
+                "call_id": call_id,
+                "role": "agent",
+                "text": first_message,
+            },
+        )
+    )
+    
     asyncio.create_task(agent.say(first_message, allow_interruptions=True))
 
     # ── Monitor call status ───────────────────────────────────────────────────
